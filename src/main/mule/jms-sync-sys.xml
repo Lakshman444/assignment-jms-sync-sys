@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:jms="http://www.mulesoft.org/schema/mule/jms" xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd">
+	<jms:config name="JMS_Config" doc:name="JMS Config" doc:id="1983dafa-4f32-4962-97ed-3c366c3a30c7" >
+		<jms:active-mq-connection username="admin" password="admin" >
+			<jms:factory-configuration brokerUrl="tcp://localhost:61616" />
+		</jms:active-mq-connection>
+	</jms:config>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="53f3867d-1fa1-4db9-9ea6-cc473242ae49" >
+		<db:my-sql-connection host="localhost" port="3306" user="root" password="123456" database="studentdetails" />
+	</db:config>
+	<flow name="jms-sync-sysFlow" doc:id="44e94939-57bb-44e8-8817-3de81fbf299b" >
+		<jms:listener doc:name="On New Message" doc:id="f763e3b8-21ba-4327-861d-58aa9bae5150" config-ref="JMS_Config" destination="sync">
+			<jms:consumer-type >
+				<jms:queue-consumer />
+			</jms:consumer-type>
+			<jms:response requestReplyPattern="NONE" />
+		</jms:listener>
+		<ee:transform doc:name="Transform Message" doc:id="3e11ca00-9128-4288-9a72-ebb0b299cf7a" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="userId1" ><![CDATA[payload.userId1]]></ee:set-variable>
+				<ee:set-variable variableName="userId2" ><![CDATA[payload.userId2]]></ee:set-variable>
+				<ee:set-variable variableName="userId3" ><![CDATA[payload.userId3]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<db:select doc:id="0ac53c06-f5c0-4ce8-8307-8e2e0690210d" config-ref="Database_Config" doc:name="Select" >
+			<db:sql ><![CDATA[select * from details where USERID in (:userid1,:userid2,:userid3)]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	userid1: vars.userId1,
+	userid2: vars.userId2,
+	userid3: vars.userId3
+}]]]></db:input-parameters>
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="7d79f5c8-563e-4cf8-a59a-631fa3bc4aaf" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Transform Message" doc:id="a49712cc-a0f4-45b0-9ff1-04985d566d5c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map{
+	message : "select userid," ++ $.COLUMNNAMES ++ " FROM " ++ $.TABLENAMES ++ " WHERE USERID = '" ++ $.USERID ++ "'"
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<parallel-foreach doc:name="Parallel For Each" doc:id="6e2cb33f-630f-4604-baab-40b34245ae57" >
+			<db:select doc:id="259c91d2-974f-42b8-8d16-632568850dbd" config-ref="Database_Config" doc:name="Select" >
+				<db:sql ><![CDATA[#[payload.message]]]></db:sql>
+			</db:select>
+		</parallel-foreach>
+		<ee:transform doc:name="Transform Message" doc:id="cda7e5ad-c0cf-4534-b242-23360968d797" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload.payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Transform Message" doc:id="7c23ef99-fe5f-46ed-96dc-ecb495eeb6db" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+(((flatten(payload)) groupBy $.userid
+mapObject(value,key,index) ->{
+    (key):value reduce($$ ++ $)
+})orderBy $.userid) groupBy $.DEPTID
+
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>
